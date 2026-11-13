@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from src.config.database import get_db
 from src.models import Job
-from src.schemas.job import JobInput
+from src.schemas.job import JobInput, RecomputeInput
 from src.middlewares.auth import current_user, can_write, admin_only
 from src.services import jobs
+from src.services.business import RULE_VERSION
 from src.services.audit import record
 from src.utils.serialization import job_dict
 router=APIRouter(prefix='/jobs')
@@ -20,6 +21,11 @@ def detail(id:int,db=Depends(get_db),u=Depends(current_user)):
     j=db.get(Job,id)
     if not j: raise HTTPException(404,'分析任务不存在')
     return job_dict(j)
+@router.post('/{id}/recompute',status_code=201)
+def recompute(id:int,data:RecomputeInput|None=None,db=Depends(get_db),u=Depends(can_write)):
+    j=jobs.recompute(db,db.get(Job,id),data,u)
+    record(db,u.email,'job.recompute',{'source_id':id,'id':j.id,'rule_version':RULE_VERSION})
+    db.commit(); jobs.enqueue(j.id); return job_dict(j)
 @router.post('/{id}/approve')
 def approve(id:int,db=Depends(get_db),u=Depends(admin_only)):
     j=db.get(Job,id)
